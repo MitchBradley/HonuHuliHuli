@@ -1,7 +1,7 @@
 # HonuHuliHuli - pushbutton turntable indexer for MicroPython on ESP32.
 #
 # A 200 step/rev stepper drives the turntable directly through a STEP/DIR
-# driver.  Only STEP is driven by this code; DIR and ENABLE are hardwired.
+# driver.  STEP and an active-high ENABLE are driven; DIR is hardwired.
 #
 #   Short press        index 1/8 turn.  Presses accumulate, so three quick
 #                      presses (even while moving) index 3/8 turn.
@@ -15,25 +15,29 @@
 
 from machine import Pin
 from micropython import const
-from time import ticks_ms, ticks_diff, sleep_ms
-from math import sqrt
+from time import ticks_ms, ticks_us, ticks_add, ticks_diff, sleep_ms
+from math import sqrt, sin, cos
 import esp32
 
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 
-STEP_PIN = const(4)          # GPIO to the driver's STEP input
-BUTTON_PIN = const(5)        # GPIO to the pushbutton
+STEP_PIN = const(16)          # GPIO to the driver's STEP input
+BUTTON_PIN = const(18)        # GPIO to the pushbutton
+ENABLE_PIN = const(33)       # GPIO to the driver's ENABLE input (active high)
+ENABLE_AT_BOOT = True        # Energize the motor when the app starts
+UV_PIN = const(35)           # GPIO to the UV light relay (active high); on
+                             # from reaching continuous speed to stop press
 BUTTON_ACTIVE_LOW = True     # True: button to GND, internal pull-up enabled
 
 FULL_STEPS_PER_REV = const(200)
-MICROSTEPS = const(16)       # Must match the driver's microstep setting
+MICROSTEPS = const(8)       # Must match the driver's microstep setting
 
 ACCELERATION = 0.5           # rev/s^2, used for all speed changes
 CONTINUOUS_RPM = 10.0        # Speed for continuous rotation
 INDEX_RPM = 30.0             # Top speed for 1/8 index moves (short moves
-                             # may never reach it before decelerating)
+
 
 DIVISIONS = const(8)         # Index increment is 1/DIVISIONS of a turn
 LONG_PRESS_MS = const(1000)  # Hold this long to start continuous rotation
@@ -95,6 +99,10 @@ class Motion:
         self.frac = 0.0
         self._cache_v2 = -1.0
         self._cache_ticks = 0.0
+        # UV light state as of the last generated step, and the
+        # (tick offset, level) changes within the chunk being built.
+        self.uv = False
+        self.events = []
 
     def active(self):
         return self.target is None or self.pos < self.target
@@ -161,6 +169,10 @@ class Motion:
                 if v2 < self.vmax2:
                     v2 = self.vmax2
             self.v2 = v2
+            if target is None and not self.uv and v2 == self.vmax2:
+                # Light on once continuous rotation reaches speed
+                self.uv = True
+                self.events.append((t, True))
 
         if not self.active():
             # Move complete: next move starts from rest at index speed
@@ -218,43 +230,198 @@ def check_config():
         raise ValueError("Speed too high for STEP_PULSE_US")
 
 
-def main():
-    check_config()
-    rmt = make_rmt()
-    button = Button(BUTTON_PIN)
-    motion = Motion()
-    pending = None
-    # True when the current press has already been used (to stop continuous
-    # rotation or to start it), so its release is not a short press.
-    consumed = False
+class Turntable:
+    def __init__(self):
+        check_config()
+        self.enable_pin = Pin(ENABLE_PIN, Pin.OUT, value=ENABLE_AT_BOOT)
+        self.rmt = make_rmt()
+        self.button = Button(BUTTON_PIN)
+        self.uv_pin = Pin(UV_PIN, Pin.OUT, value=0)
+        self.motion = Motion()
+        self.pending = None
+        self.pending_events = []
+        # (ticks_us deadline, level) UV changes for the chunk now playing
+        self.scheduled = []
+        # True when the current press has already been used (to stop
+        # continuous rotation or to start it), so its release is not a
+        # short press.
+        self.consumed = False
 
-    print("HonuHuliHuli: %d steps/rev, %d steps per 1/%d turn"
-          % (STEPS_PER_REV, STEPS_PER_INDEX, DIVISIONS))
+    def poll(self):
+        """One pass of button handling and pulse queueing.  Returns True
+        while there is motion still to generate or play."""
+        motion = self.motion
+        sched = self.scheduled
+        if sched:
+            now = ticks_us()
+            while sched and ticks_diff(sched[0][0], now) <= 0:
+                self.uv_pin.value(sched.pop(0)[1])
 
-    while True:
-        ev = button.poll()
+        ev = self.button.poll()
         if ev == PRESS:
-            consumed = False
+            self.consumed = False
             if motion.continuous():
-                motion.stop_continuous()
-                consumed = True
+                self.stop_continuous()
+                self.consumed = True
         elif ev == LONG:
-            if not consumed:
+            if not self.consumed:
                 motion.start_continuous()
-                consumed = True
+                self.consumed = True
         elif ev == RELEASE:
-            if not consumed:
+            if not self.consumed:
                 motion.add_index()
 
         # Keep one chunk computed ahead of the one the RMT is playing
-        if pending is None and motion.active():
-            pending = motion.build_chunk()
-        if pending is not None:
-            if rmt.wait_done():
-                rmt.write_pulses(pending, True)
-                pending = None
-        else:
-            sleep_ms(5)
+        if self.pending is None and motion.active():
+            self.pending = motion.build_chunk()
+            self.pending_events = motion.events
+            motion.events = []
+        if self.pending is not None:
+            if self.rmt.wait_done():
+                self.rmt.write_pulses(self.pending, True)
+                self.pending = None
+                if self.pending_events:
+                    # Time the UV changes to when the RMT reaches them
+                    start = ticks_us()
+                    for offset, level in self.pending_events:
+                        sched.append((ticks_add(start, offset), level))
+                    self.pending_events = []
+            return True
+        return bool(sched) or motion.active() or not self.rmt.wait_done()
+
+    def uv_off(self):
+        """Turn the UV light off now and cancel any pending turn-on."""
+        self.uv_pin.value(0)
+        self.motion.uv = False
+        self.motion.events = []
+        self.pending_events = []
+        self.scheduled = []
+
+    def stop_continuous(self):
+        self.uv_off()
+        self.motion.stop_continuous()
+
+    def loop(self):
+        """Run the pushbutton controller forever."""
+        while True:
+            if not self.poll():
+                sleep_ms(5)
+
+    def _poll_until(self, done=None):
+        """Poll until motion finishes or done() returns True."""
+        try:
+            while self.poll():
+                if done is not None and done():
+                    return
+        except KeyboardInterrupt:
+            # Abandon the move.  The chunk already in the RMT plays out,
+            # so the table stops abruptly, generally off an index position.
+            m = self.motion
+            if self.pending is not None:
+                m.pos -= len(self.pending) // 2
+                self.pending = None
+            m.target = m.pos
+            m.v2 = START_V2
+            m.vmax2 = INDEX_V2
+            m.frac = 0.0
+            self.uv_off()
+            print("Interrupted at step", m.pos)
+            raise
+
+    def wait(self):
+        """Poll until all motion has finished."""
+        self._poll_until()
+
+    def index(self, n=1):
+        """Index n eighths of a turn and wait for the move to finish."""
+        if n < 1:
+            raise ValueError("n must be >= 1")
+        if self.motion.continuous():
+            self.stop_continuous()
+        for _ in range(n):
+            self.motion.add_index()
+        self.wait()
+
+    def run(self, seconds):
+        """Rotate continuously for the given time, then stop on the next
+        index position and wait for the stop to finish."""
+        self.motion.start_continuous()
+        t0 = ticks_ms()
+        ms = int(seconds * 1000)
+        self._poll_until(lambda: ticks_diff(ticks_ms(), t0) >= ms)
+        if self.motion.continuous():
+            self.stop_continuous()
+        self.wait()
+
+
+    def step(self, n=1, interval_ms=10):
+        """Send n single microsteps at interval_ms apart and wait, then
+        report the electrical position so phase drive can be checked."""
+        if n < 1:
+            raise ValueError("n must be >= 1")
+        self.wait()
+        gap = interval_ms * 1000 - STEP_PULSE_US
+        if not 0 < gap <= MAX_TICKS:
+            raise ValueError("interval_ms out of range")
+        self.rmt.write_pulses([STEP_PULSE_US, gap] * n, True)
+        while not self.rmt.wait_done():
+            pass
+        m = self.motion
+        m.pos += n
+        m.target = m.pos
+        m.frac = 0.0
+        # One electrical cycle is 4 full steps.  Drivers such as A4988,
+        # DRV8825 and TMC2xxx reset to 45 degrees (both phases at 71%).
+        cycle = 4 * MICROSTEPS
+        e = m.pos % cycle
+        angle = 45.0 + 360.0 * e / cycle
+        r = angle * 3.14159265 / 180.0
+        print("step %d, microstep %d/%d in cycle, %.1f deg: "
+              "ideal A %+.0f%% B %+.0f%% (if driver reset at power-up)"
+              % (m.pos, e, cycle, angle % 360, 100 * cos(r), 100 * sin(r)))
+
+
+    def enable(self, on):
+        """Energize (True) or release (False) the motor."""
+        self.enable_pin.value(1 if on else 0)
+
+
+turntable = None
+
+
+def index(n=1):
+    """REPL: index n eighths of a turn."""
+    turntable.index(n)
+
+
+def run(seconds):
+    """REPL: rotate continuously for seconds, then stop on an index."""
+    turntable.run(seconds)
+
+
+def step(n=1, interval_ms=10):
+    """REPL: send n microsteps, interval_ms apart, and report phase."""
+    turntable.step(n, interval_ms)
+
+
+def enable(on=True):
+    """REPL: energize (True) or release (False) the motor."""
+    turntable.enable(on)
+
+
+def loop():
+    """REPL: start the pushbutton controller (Ctrl-C to exit)."""
+    turntable.loop()
+
+
+def main():
+    global turntable
+    turntable = Turntable()
+    print("HonuHuliHuli: %d steps/rev, %d steps per 1/%d turn"
+          % (STEPS_PER_REV, STEPS_PER_INDEX, DIVISIONS))
+    print("REPL commands: index(n), run(seconds), step(n), enable(bool), loop()")
+    # Not started automatically yet, while testing from the REPL:
+    # turntable.loop()
 
 
 if __name__ == "__main__":
