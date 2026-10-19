@@ -23,7 +23,8 @@ The power-up position is index position 0; all stops land on multiples of 1/8 tu
 Edit the constants at the top of `main.py`: `STEP_PIN`, `ENABLE_PIN`, `ENABLE_AT_BOOT`, `UV_PIN`, `OLED_SDA_PIN`, `OLED_SCL_PIN`, `BUTTON_PIN`,
 `BUTTON_ACTIVE_LOW`, `MICROSTEPS`, `ACCELERATION` (rev/s²),
 `CONTINUOUS_RPM`, `INDEX_RPM`, `STEP_PULSE_US`, `LONG_PRESS_MS`.
-Choose GPIOs that are not strapping/flash pins on your board.
+Pins are given as D1 mini names from `pins.py`, which picks the ESP8266,
+ESP32-S2 Mini or ESP32 table for the board it runs on.
 
 ## Display
 
@@ -58,7 +59,7 @@ loop runs as an asyncio task beside it.
 
 ```
 mpremote cp -r microdot :
-mpremote cp main.py web.py wifi.py display.py ssd1306.py settings.py wifi_credentials.py :
+mpremote cp main.py pins.py web.py wifi.py display.py ssd1306.py settings.py wifi_credentials.py :
 mpremote reset
 ```
 
@@ -90,7 +91,7 @@ ENABLE D6, UV D7, OLED on D2/D1.
 
 ```
 mpremote cp main8266.py :main.py
-mpremote cp display.py ssd1306.py :
+mpremote cp pins.py display.py ssd1306.py :
 mpremote reset
 ```
 

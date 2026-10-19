@@ -24,47 +24,15 @@ import asyncio
 # Configuration
 # ---------------------------------------------------------------------------
 
-# For S2
-# PIN_A0 = const(39)
-# PIN_D0 = const(37)
-# PIN_D1 = const(35) # SCL
-# PIN_D2 = const(33) # SDA
-# PIN_D3 = const(18)
-# PIN_D4 = const(16)
-# PIN_D5 = const(7)
-# PIN_D6 = const(9)
-# PIN_D7 = const(11) # SPI MOSI
-# PIN_D8 = const(12) # SPI CS
+import pins                  # D1 mini pin names for this board
 
-# For ESP32
-
-# PIN_D0 = const(26)
-# PIN_D1 = const(22) # SCL
-# PIN_D2 = const(21) # SDA
-# PIN_D3 = const(17)
-# PIN_D4 = const(16)
-# PIN_D5 = const(18)
-# PIN_D6 = const(19)
-# PIN_D7 = const(23) # SPI MOSI
-# PIN_D8 = const(5) # SPI CS
-
-# ESP8266
-PIN_D1 = const(5) # SCL
-PIN_D2 = const(4) # SDA
-PIN_D3 = const(0)
-PIN_D4 = const(2)
-PIN_D5 = const(14) # SPI_SCK
-PIN_D6 = const(12) # SPI_MISO
-PIN_D7 = const(13) # SPI MOSI
-PIN_D8 = const(15) # SPI CS
-
-BUTTON_PIN = PIN_D3      # GPIO to the pushbutton (D3)
-UV_PIN = PIN_D4          # GPIO to the UV light relay (active high); on (D4)
-STEP_PIN = PIN_D5        # GPIO to the driver's STEP input (D5)
-ENABLE_PIN = PIN_D6      # GPIO to the driver's ENABLE input (active high) (D6)
+BUTTON_PIN = pins.D3      # GPIO to the pushbutton (D3)
+UV_PIN = pins.D4          # GPIO to the UV light relay (active high); on (D4)
+STEP_PIN = pins.D5        # GPIO to the driver's STEP input (D5)
+ENABLE_PIN = pins.D6      # GPIO to the driver's ENABLE input (active high) (D6)
 ENABLE_AT_BOOT = True    # Energize the motor when the app starts
-OLED_SDA_PIN = PIN_D2
-OLED_SCL_PIN = PIN_D1
+OLED_SDA_PIN = pins.D2
+OLED_SCL_PIN = pins.D1
 OLED_ADDR = const(0x3C)
 BUTTON_ACTIVE_LOW = True # True: button to GND, internal pull-up enabled
 

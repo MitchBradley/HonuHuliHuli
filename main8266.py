@@ -25,22 +25,17 @@ from math import sqrt
 # Configuration
 # ---------------------------------------------------------------------------
 
-# D1 mini pin names
-PIN_D1 = const(5)    # SCL
-PIN_D2 = const(4)    # SDA
-PIN_D3 = const(0)    # 10k pull-up; low at reset enters the bootloader
-PIN_D5 = const(14)
-PIN_D6 = const(12)
-PIN_D7 = const(13)
+import pins              # D1 mini pin names (D3 = GPIO0: 10k pull-up;
+                         # low at reset enters the bootloader)
 
-BUTTON_PIN = PIN_D3      # Pushbutton to GND
-STEP_PIN = PIN_D5        # Driver STEP input
-ENABLE_PIN = PIN_D6      # Driver ENABLE input (active high)
-UV_PIN = PIN_D7          # UV light relay (active high); on from reaching
+BUTTON_PIN = pins.D3      # Pushbutton to GND
+STEP_PIN = pins.D5        # Driver STEP input
+ENABLE_PIN = pins.D6      # Driver ENABLE input (active high)
+UV_PIN = pins.D7          # UV light relay (active high); on from reaching
                          # continuous speed until the stop press
 ENABLE_AT_BOOT = True    # Energize the motor when the app starts
-OLED_SDA_PIN = PIN_D2
-OLED_SCL_PIN = PIN_D1
+OLED_SDA_PIN = pins.D2
+OLED_SCL_PIN = pins.D1
 OLED_ADDR = const(0x3C)
 BUTTON_ACTIVE_LOW = True # True: button to GND, internal pull-up enabled
 
