@@ -18,25 +18,62 @@ from micropython import const
 from time import ticks_ms, ticks_us, ticks_add, ticks_diff, sleep_ms
 from math import sqrt, sin, cos
 import esp32
+import asyncio
 
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
 
-STEP_PIN = const(16)          # GPIO to the driver's STEP input
-BUTTON_PIN = const(18)        # GPIO to the pushbutton
-ENABLE_PIN = const(33)       # GPIO to the driver's ENABLE input (active high)
-ENABLE_AT_BOOT = True        # Energize the motor when the app starts
-UV_PIN = const(35)           # GPIO to the UV light relay (active high); on
-                             # from reaching continuous speed to stop press
-BUTTON_ACTIVE_LOW = True     # True: button to GND, internal pull-up enabled
+# For S2
+# PIN_A0 = const(39)
+# PIN_D0 = const(37)
+# PIN_D1 = const(35) # SCL
+# PIN_D2 = const(33) # SDA
+# PIN_D3 = const(18)
+# PIN_D4 = const(16)
+# PIN_D5 = const(7)
+# PIN_D6 = const(9)
+# PIN_D7 = const(11) # SPI MOSI
+# PIN_D8 = const(12) # SPI CS
+
+# For ESP32
+
+# PIN_D0 = const(26)
+# PIN_D1 = const(22) # SCL
+# PIN_D2 = const(21) # SDA
+# PIN_D3 = const(17)
+# PIN_D4 = const(16)
+# PIN_D5 = const(18)
+# PIN_D6 = const(19)
+# PIN_D7 = const(23) # SPI MOSI
+# PIN_D8 = const(5) # SPI CS
+
+# ESP8266
+PIN_D1 = const(5) # SCL
+PIN_D2 = const(4) # SDA
+PIN_D3 = const(0)
+PIN_D4 = const(2)
+PIN_D5 = const(14) # SPI_SCK
+PIN_D6 = const(12) # SPI_MISO
+PIN_D7 = const(13) # SPI MOSI
+PIN_D8 = const(15) # SPI CS
+
+BUTTON_PIN = PIN_D3      # GPIO to the pushbutton (D3)
+UV_PIN = PIN_D4          # GPIO to the UV light relay (active high); on (D4)
+STEP_PIN = PIN_D5        # GPIO to the driver's STEP input (D5)
+ENABLE_PIN = PIN_D6      # GPIO to the driver's ENABLE input (active high) (D6)
+ENABLE_AT_BOOT = True    # Energize the motor when the app starts
+OLED_SDA_PIN = PIN_D2
+OLED_SCL_PIN = PIN_D1
+OLED_ADDR = const(0x3C)
+BUTTON_ACTIVE_LOW = True # True: button to GND, internal pull-up enabled
 
 FULL_STEPS_PER_REV = const(200)
-MICROSTEPS = const(8)       # Must match the driver's microstep setting
+MICROSTEPS = const(32)       # Must match the driver's microstep setting
 
-ACCELERATION = 0.5           # rev/s^2, used for all speed changes
-CONTINUOUS_RPM = 10.0        # Speed for continuous rotation
-INDEX_RPM = 30.0             # Top speed for 1/8 index moves (short moves
+ACCELERATION = 0.3           # rev/s^2, used for all speed changes
+CONTINUOUS_RPM = 20.0        # Speed for continuous rotation
+INDEX_RPM = 40.0             # Top speed for 1/8 index moves (short moves
 
 
 DIVISIONS = const(8)         # Index increment is 1/DIVISIONS of a turn
@@ -191,11 +228,13 @@ class Button:
     def __init__(self, gpio):
         pull = Pin.PULL_UP if BUTTON_ACTIVE_LOW else Pin.PULL_DOWN
         self.pin = Pin(gpio, Pin.IN, pull)
+        sleep_ms(DEBOUNCE_MS)    # let the pull settle
         self.raw = self.read()
         self.stable = self.raw
         self.changed_t = ticks_ms()
         self.press_t = 0
-        self.long_sent = False
+        # A press held from power-up never counts as a long press
+        self.long_sent = self.stable
 
     def read(self):
         return self.pin.value() == (0 if BUTTON_ACTIVE_LOW else 1)
@@ -244,8 +283,46 @@ class Turntable:
         self.scheduled = []
         # True when the current press has already been used (to stop
         # continuous rotation or to start it), so its release is not a
-        # short press.
-        self.consumed = False
+        # short press.  A press held from power-up is ignored.
+        self.consumed = self.button.stable
+        # ticks_ms at which a timed continuous run stops, or None
+        self.run_deadline = None
+
+    # Non-blocking commands, shared by the button, REPL and web interface
+
+    def start(self, seconds=None):
+        """Start continuous rotation, optionally stopping after seconds."""
+        self.motion.start_continuous()
+        self.run_deadline = (None if seconds is None
+                             else ticks_add(ticks_ms(), int(seconds * 1000)))
+
+    def stop(self):
+        """Stop continuous rotation on the next reachable index position."""
+        self.run_deadline = None
+        if self.motion.continuous():
+            self.uv_off()
+            self.motion.stop_continuous()
+
+    def add_index(self, n=1):
+        """Add n eighths of a turn to the current move (ignored while
+        rotating continuously)."""
+        for _ in range(n):
+            self.motion.add_index()
+
+    def status(self):
+        m = self.motion
+        remaining = None
+        if m.continuous():
+            state = "running"
+            if self.run_deadline is not None:
+                remaining = max(0, ticks_diff(self.run_deadline, ticks_ms())) // 1000
+        elif m.active() or self.pending is not None or not self.rmt.wait_done():
+            state = "moving"
+        else:
+            state = "idle"
+        return {"state": state, "remaining": remaining,
+                "uv": bool(self.uv_pin.value()),
+                "enabled": bool(self.enable_pin.value())}
 
     def poll(self):
         """One pass of button handling and pulse queueing.  Returns True
@@ -261,15 +338,19 @@ class Turntable:
         if ev == PRESS:
             self.consumed = False
             if motion.continuous():
-                self.stop_continuous()
+                self.stop()
                 self.consumed = True
         elif ev == LONG:
             if not self.consumed:
-                motion.start_continuous()
+                self.start()
                 self.consumed = True
         elif ev == RELEASE:
             if not self.consumed:
-                motion.add_index()
+                self.add_index()
+
+        if (self.run_deadline is not None
+                and ticks_diff(ticks_ms(), self.run_deadline) >= 0):
+            self.stop()
 
         # Keep one chunk computed ahead of the one the RMT is playing
         if self.pending is None and motion.active():
@@ -297,62 +378,60 @@ class Turntable:
         self.pending_events = []
         self.scheduled = []
 
-    def stop_continuous(self):
+    def abort(self):
+        """Abandon any motion.  The chunk already in the RMT plays out, so
+        the table stops abruptly, generally off an index position."""
+        m = self.motion
+        if self.pending is not None:
+            m.pos -= len(self.pending) // 2
+            self.pending = None
+        m.target = m.pos
+        m.v2 = START_V2
+        m.vmax2 = INDEX_V2
+        m.frac = 0.0
+        self.run_deadline = None
         self.uv_off()
-        self.motion.stop_continuous()
+        print("Stopped at step", m.pos)
 
     def loop(self):
         """Run the pushbutton controller forever."""
-        while True:
-            if not self.poll():
-                sleep_ms(5)
-
-    def _poll_until(self, done=None):
-        """Poll until motion finishes or done() returns True."""
         try:
-            while self.poll():
-                if done is not None and done():
-                    return
+            while True:
+                if not self.poll():
+                    sleep_ms(5)
         except KeyboardInterrupt:
-            # Abandon the move.  The chunk already in the RMT plays out,
-            # so the table stops abruptly, generally off an index position.
-            m = self.motion
-            if self.pending is not None:
-                m.pos -= len(self.pending) // 2
-                self.pending = None
-            m.target = m.pos
-            m.v2 = START_V2
-            m.vmax2 = INDEX_V2
-            m.frac = 0.0
-            self.uv_off()
-            print("Interrupted at step", m.pos)
+            self.abort()
             raise
+
+    async def poll_task(self):
+        """asyncio version of loop(), run alongside the web server."""
+        while True:
+            await asyncio.sleep_ms(0 if self.poll() else 5)
 
     def wait(self):
         """Poll until all motion has finished."""
-        self._poll_until()
+        try:
+            while self.poll():
+                pass
+        except KeyboardInterrupt:
+            self.abort()
+            raise
+
+    # Blocking REPL commands
 
     def index(self, n=1):
         """Index n eighths of a turn and wait for the move to finish."""
         if n < 1:
             raise ValueError("n must be >= 1")
-        if self.motion.continuous():
-            self.stop_continuous()
-        for _ in range(n):
-            self.motion.add_index()
+        self.stop()
+        self.add_index(n)
         self.wait()
 
     def run(self, seconds):
         """Rotate continuously for the given time, then stop on the next
         index position and wait for the stop to finish."""
-        self.motion.start_continuous()
-        t0 = ticks_ms()
-        ms = int(seconds * 1000)
-        self._poll_until(lambda: ticks_diff(ticks_ms(), t0) >= ms)
-        if self.motion.continuous():
-            self.stop_continuous()
+        self.start(seconds)
         self.wait()
-
 
     def step(self, n=1, interval_ms=10):
         """Send n single microsteps at interval_ms apart and wait, then
@@ -387,6 +466,7 @@ class Turntable:
 
 
 turntable = None
+oled = None
 
 
 def index(n=1):
@@ -410,18 +490,58 @@ def enable(on=True):
 
 
 def loop():
-    """REPL: start the pushbutton controller (Ctrl-C to exit)."""
+    """REPL: run the pushbutton controller only (Ctrl-C to exit)."""
     turntable.loop()
 
 
+def web():
+    """REPL: run the pushbutton controller and web server (Ctrl-C to exit)."""
+    import web as webui
+    app = webui.make_app(turntable)
+
+    async def both():
+        asyncio.create_task(turntable.poll_task())
+        await app.start_server(port=webui.PORT)
+
+    try:
+        asyncio.run(both())
+    except KeyboardInterrupt:
+        turntable.abort()
+        raise
+    finally:
+        asyncio.new_event_loop()
+
+
+def show_ap(ip):
+    """Show the access point SSID and IP, replacing the signon message."""
+    import wifi
+    # An IP is wider than the display; break it after a dot
+    cut = ip.rfind(".", 0, 8) + 1 if len(ip) > 8 else len(ip)
+    oled.show(wifi.AP_SSID, "", ip[:cut], ip[cut:])
+
+
 def main():
-    global turntable
+    global turntable, oled
+    import display
+    oled = display.Display(OLED_SDA_PIN, OLED_SCL_PIN, OLED_ADDR)
+    oled.center(1, "Honu")
+    oled.center(3, "HuliHuli")
     turntable = Turntable()
     print("HonuHuliHuli: %d steps/rev, %d steps per 1/%d turn"
           % (STEPS_PER_REV, STEPS_PER_INDEX, DIVISIONS))
-    print("REPL commands: index(n), run(seconds), step(n), enable(bool), loop()")
-    # Not started automatically yet, while testing from the REPL:
-    # turntable.loop()
+    print("REPL commands: index(n), run(seconds), step(n), enable(bool),"
+          " loop(), web()")
+    import wifi
+    try:
+        if turntable.button.stable:
+            # Button held at power-up: provisioning mode
+            print("Button held; starting access point")
+            show_ap(wifi.start_ap())
+        elif not wifi.connect():
+            show_ap(wifi.start_ap())
+        web()
+    except KeyboardInterrupt:
+        print("Interrupted; REPL commands available")
 
 
 if __name__ == "__main__":
