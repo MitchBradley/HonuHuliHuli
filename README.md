@@ -78,6 +78,22 @@ these available:
 
 The button is still checked while `index()` and `run()` are running.
 
+## ESP8266 variant
+
+`main8266.py` is a button-and-OLED-only version for the ESP8266 (D1 mini),
+which has no RMT. Step pulses are timed in software from the main loop, so
+they jitter and pause briefly during garbage collection and OLED updates; a
+late step delays the schedule rather than being caught up. No WiFi or web.
+
+Pins: button D3 (GPIO0; holding it at reset enters the bootloader), STEP D5,
+ENABLE D6, UV D7, OLED on D2/D1.
+
+```
+mpremote cp main8266.py :main.py
+mpremote cp display.py ssd1306.py :
+mpremote reset
+```
+
 ## How it works
 
 Step pulses come from the RMT peripheral. Python computes ~40 ms chunks of

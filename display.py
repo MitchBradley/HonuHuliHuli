@@ -3,8 +3,9 @@
 # With the built-in 8x8 font that is 6 lines of 8 characters.  If the
 # display is missing, every call is a no-op so the turntable still runs.
 
-from machine import Pin, I2C
+from machine import Pin, I2C, SoftI2C
 import ssd1306
+import sys
 
 WIDTH = 64
 HEIGHT = 48
@@ -16,7 +17,11 @@ class Display:
     def __init__(self, sda, scl, addr=0x3C):
         self.lines = [""] * ROWS
         try:
-            i2c = I2C(0, sda=Pin(sda), scl=Pin(scl), freq=400_000)
+            if sys.platform == "esp8266":
+                # No hardware I2C on the ESP8266
+                i2c = SoftI2C(sda=Pin(sda), scl=Pin(scl), freq=400_000)
+            else:
+                i2c = I2C(0, sda=Pin(sda), scl=Pin(scl), freq=400_000)
             self.oled = ssd1306.SSD1306_I2C(WIDTH, HEIGHT, i2c, addr)
         except OSError as e:
             print("No OLED:", e)
