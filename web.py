@@ -70,7 +70,7 @@ poll();setInterval(poll,2000);
 WIFI_PAGE = """<!doctype html>
 <html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>HonuHuliHuli WiFi</title>
+<title>HonuHuliHuli WiFi%HOST%</title>
 <style>
 body{font-family:system-ui,sans-serif;max-width:24rem;margin:1rem auto;padding:0 1rem}
 label{display:block;margin-top:.6rem}
@@ -78,7 +78,7 @@ input{font-size:1.1rem;width:100%;box-sizing:border-box}
 button{font-size:1.2rem;padding:.6rem 1rem;margin-top:1rem;width:100%}
 .note{color:#666;font-size:.9rem}
 </style></head><body>
-<h2>WiFi setup</h2>
+<h2>WiFi setup%HOST%</h2>
 <form method="POST" action="/wifi">
 <label>Network<input name="SSID" list="nets" value="%SSID%" required></label>
 <datalist id="nets">%NETS%</datalist>
@@ -107,11 +107,15 @@ async def _reboot():
     machine.reset()
 
 
-def _title():
-    """Page title, with the mDNS name when connected as a station."""
+def _host():
+    """" (name.local)" when connected as a station, for page titles."""
     if network.WLAN(network.STA_IF).isconnected():
-        return "HonuHuliHuli (%s.local)" % wifi.HOSTNAME
-    return "HonuHuliHuli"
+        return " (%s.local)" % wifi.HOSTNAME
+    return ""
+
+
+def _title():
+    return "HonuHuliHuli" + _host()
 
 
 def make_app(turntable):
@@ -159,6 +163,7 @@ def make_app(turntable):
         cur = wifi.saved_settings() or wifi.file_settings() or {}
         page = WIFI_PAGE.replace("%NETS%", "".join(
             '<option value="%s">' % _esc(n) for n in wifi.networks))
+        page = page.replace("%HOST%", _esc(_host()))
         for k in ("SSID", "IP", "netmask", "gateway", "DNS"):
             v = cur.get(k, "")
             if k == "IP" and not v:
