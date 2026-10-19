@@ -34,6 +34,7 @@ ENABLE_AT_BOOT = True    # Energize the motor when the app starts
 OLED_SDA_PIN = pins.D2
 OLED_SCL_PIN = pins.D1
 OLED_ADDR = const(0x3C)
+STATE_ROW = const(5)          # OLED row for Index/Run
 BUTTON_ACTIVE_LOW = True # True: button to GND, internal pull-up enabled
 
 FULL_STEPS_PER_REV = const(200)
@@ -238,8 +239,10 @@ def check_config():
 
 
 class Turntable:
-    def __init__(self):
+    def __init__(self, oled=None):
         check_config()
+        self.oled = oled
+        self.state_label = ""
         self.enable_pin = Pin(ENABLE_PIN, Pin.OUT, value=ENABLE_AT_BOOT)
         self.rmt = make_rmt()
         self.button = Button(BUTTON_PIN)
@@ -258,9 +261,18 @@ class Turntable:
 
     # Non-blocking commands, shared by the button, REPL and web interface
 
+    def show_state(self, label):
+        """Show Index/Run on the OLED's bottom row; "" clears it, which
+        leaves the signon (or access point info) above it."""
+        if label != self.state_label:
+            self.state_label = label
+            if self.oled is not None:
+                self.oled.center(STATE_ROW, label)
+
     def start(self, seconds=None):
         """Start continuous rotation, optionally stopping after seconds."""
         self.motion.start_continuous()
+        self.show_state("Run")
         self.run_deadline = (None if seconds is None
                              else ticks_add(ticks_ms(), int(seconds * 1000)))
 
@@ -274,8 +286,11 @@ class Turntable:
     def add_index(self, n=1):
         """Add n eighths of a turn to the current move (ignored while
         rotating continuously)."""
+        if self.motion.continuous() or n < 1:
+            return
         for _ in range(n):
             self.motion.add_index()
+        self.show_state("Index")
 
     def status(self):
         m = self.motion
@@ -336,7 +351,10 @@ class Turntable:
                         sched.append((ticks_add(start, offset), level))
                     self.pending_events = []
             return True
-        return bool(sched) or motion.active() or not self.rmt.wait_done()
+        busy = bool(sched) or motion.active() or not self.rmt.wait_done()
+        if not busy and self.state_label:
+            self.show_state("")
+        return busy
 
     def uv_off(self):
         """Turn the UV light off now and cancel any pending turn-on."""
@@ -359,6 +377,7 @@ class Turntable:
         m.frac = 0.0
         self.run_deadline = None
         self.uv_off()
+        self.show_state("")
         print("Stopped at step", m.pos)
 
     def loop(self):
@@ -503,7 +522,7 @@ def main():
     oled = display.Display(OLED_SDA_PIN, OLED_SCL_PIN, OLED_ADDR)
     oled.center(1, "Honu")
     oled.center(3, "HuliHuli")
-    turntable = Turntable()
+    turntable = Turntable(oled)
     print("HonuHuliHuli: %d steps/rev, %d steps per 1/%d turn"
           % (STEPS_PER_REV, STEPS_PER_INDEX, DIVISIONS))
     print("REPL commands: index(n), run(seconds), step(n), enable(bool),"

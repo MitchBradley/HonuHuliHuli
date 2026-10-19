@@ -37,6 +37,7 @@ ENABLE_AT_BOOT = True    # Energize the motor when the app starts
 OLED_SDA_PIN = pins.D2
 OLED_SCL_PIN = pins.D1
 OLED_ADDR = const(0x3C)
+STATE_ROW = const(5)     # OLED row for Index/Run
 BUTTON_ACTIVE_LOW = True # True: button to GND, internal pull-up enabled
 
 FULL_STEPS_PER_REV = const(200)
@@ -179,7 +180,9 @@ class Button:
 
 
 class Turntable:
-    def __init__(self):
+    def __init__(self, oled=None):
+        self.oled = oled
+        self.state_label = ""
         if STEPS_PER_REV % DIVISIONS:
             raise ValueError("STEPS_PER_REV not divisible by DIVISIONS")
         self.enable_pin = Pin(ENABLE_PIN, Pin.OUT, value=ENABLE_AT_BOOT)
@@ -198,6 +201,7 @@ class Turntable:
     def start(self, seconds=None):
         """Start continuous rotation, optionally stopping after seconds."""
         self.motion.start_continuous()
+        self.show_state("Run")
         self.run_deadline = (None if seconds is None
                              else ticks_add(ticks_ms(), int(seconds * 1000)))
 
@@ -208,13 +212,26 @@ class Turntable:
             self.uv(False)
             self.motion.stop_continuous()
 
+    def show_state(self, label):
+        """Show Index/Run on the OLED's bottom row; "" clears it, which
+        leaves the signon (or access point info) above it."""
+        if label != self.state_label:
+            self.state_label = label
+            if self.oled is not None:
+                self.oled.center(STATE_ROW, label)
+
     def uv(self, on):
         self.uv_on = on
         self.uv_pin.value(1 if on else 0)
 
     def add_index(self, n=1):
+        """Add n eighths of a turn to the current move (ignored while
+        rotating continuously)."""
+        if self.motion.continuous() or n < 1:
+            return
         for _ in range(n):
             self.motion.add_index()
+        self.show_state("Index")
 
     def poll(self):
         """One pass of button handling and step timing.  Returns True while
@@ -240,6 +257,8 @@ class Turntable:
 
         if not motion.active():
             self.next_t = None
+            if self.state_label:
+                self.show_state("")
             return False
         now = ticks_us()
         if self.next_t is None:
@@ -277,6 +296,7 @@ class Turntable:
         self.next_t = None
         self.run_deadline = None
         self.uv(False)
+        self.show_state("")
         print("Stopped at step", m.pos)
 
     def wait(self):
@@ -335,7 +355,7 @@ def main():
     oled = display.Display(OLED_SDA_PIN, OLED_SCL_PIN, OLED_ADDR)
     oled.center(1, "Honu")
     oled.center(3, "HuliHuli")
-    turntable = Turntable()
+    turntable = Turntable(oled)
     print("HonuHuliHuli (ESP8266): %d steps/rev, %d steps per 1/%d turn"
           % (STEPS_PER_REV, STEPS_PER_INDEX, DIVISIONS))
     print("REPL commands: index(n), run(seconds), enable(bool), loop()")
