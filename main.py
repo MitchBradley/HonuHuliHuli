@@ -238,11 +238,21 @@ def check_config():
         raise ValueError("Speed too high for STEP_PULSE_US")
 
 
+def fmt_time(s):
+    """Seconds as m:ss, or h:mm:ss from an hour up."""
+    m, s = divmod(s, 60)
+    if m < 60:
+        return "%d:%02d" % (m, s)
+    h, m = divmod(m, 60)
+    return "%d:%02d:%02d" % (h, m, s)
+
+
 class Turntable:
     def __init__(self, oled=None):
         check_config()
         self.oled = oled
         self.state_label = ""
+        self.shown_secs = None   # remaining seconds last shown
         self.enable_pin = Pin(ENABLE_PIN, Pin.OUT, value=ENABLE_AT_BOOT)
         self.rmt = make_rmt()
         self.button = Button(BUTTON_PIN)
@@ -261,6 +271,17 @@ class Turntable:
 
     # Non-blocking commands, shared by the button, REPL and web interface
 
+    def show_remaining(self):
+        """Count down a timed run on the state row, stopping at zero."""
+        ms = ticks_diff(self.run_deadline, ticks_ms())
+        if ms <= 0:
+            self.stop()
+            return
+        secs = (ms + 999) // 1000
+        if secs != self.shown_secs:
+            self.shown_secs = secs
+            self.show_state(fmt_time(secs))
+
     def show_state(self, label):
         """Show Index/Run on the OLED's bottom row; "" clears it, which
         leaves the signon (or access point info) above it."""
@@ -272,9 +293,13 @@ class Turntable:
     def start(self, seconds=None):
         """Start continuous rotation, optionally stopping after seconds."""
         self.motion.start_continuous()
-        self.show_state("Run")
-        self.run_deadline = (None if seconds is None
-                             else ticks_add(ticks_ms(), int(seconds * 1000)))
+        self.shown_secs = None
+        if seconds is None:
+            self.run_deadline = None
+            self.show_state("Run")
+        else:
+            self.run_deadline = ticks_add(ticks_ms(), int(seconds * 1000))
+            self.show_remaining()
 
     def stop(self):
         """Stop continuous rotation on the next reachable index position."""
@@ -331,9 +356,8 @@ class Turntable:
             if not self.consumed:
                 self.add_index()
 
-        if (self.run_deadline is not None
-                and ticks_diff(ticks_ms(), self.run_deadline) >= 0):
-            self.stop()
+        if self.run_deadline is not None:
+            self.show_remaining()
 
         # Keep one chunk computed ahead of the one the RMT is playing
         if self.pending is None and motion.active():
@@ -503,17 +527,17 @@ def show_ap(ip):
     """Show the access point SSID and setup page address, replacing the
     signon message."""
     import wifi
-    # The address is wider than the display; wrap it at 8 characters,
-    # breaking after a dot or before the slash where possible.
-    text = ip + "/wifi"
-    rows = []
-    while len(text) > 8:
-        cut = max([i for i in range(1, 9)
-                   if text[i - 1] == "." or text[i] == "/"] or [8])
-        rows.append(text[:cut])
-        text = text[cut:]
-    rows.append(text)
-    oled.show(wifi.AP_SSID, "", *rows)
+    import display
+    oled.show(wifi.AP_SSID, "", *display.wrap(ip + "/wifi"))
+
+
+def show_station(ip):
+    """Show the mDNS name on rows 0-1 and the station IP below it."""
+    import display
+    import wifi
+    c = display.centered
+    rows = display.wrap(wifi.HOSTNAME + ".local") + display.wrap(ip)
+    oled.show(*[c(r) for r in rows])
 
 
 def main():
@@ -532,8 +556,12 @@ def main():
         if turntable.button.stable:
             # Button held at power-up: provisioning mode
             print("Button held; starting access point")
-            show_ap(wifi.start_ap())
-        elif not wifi.connect():
+            ip = None
+        else:
+            ip = wifi.connect()
+        if ip:
+            show_station(ip)
+        else:
             show_ap(wifi.start_ap())
         web()
     except KeyboardInterrupt:

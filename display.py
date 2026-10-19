@@ -13,6 +13,25 @@ COLS = WIDTH // 8
 ROWS = HEIGHT // 8
 
 
+def centered(s):
+    """s truncated to the display width and padded to center it."""
+    s = str(s)[:COLS]
+    return " " * ((COLS - len(s)) // 2) + s
+
+
+def wrap(text):
+    """Split text into display-width rows, breaking after a dot or before
+    a slash where possible (for IP addresses and URLs)."""
+    rows = []
+    while len(text) > COLS:
+        cut = max([i for i in range(1, COLS + 1)
+                   if text[i - 1] == "." or text[i] == "/"] or [COLS])
+        rows.append(text[:cut])
+        text = text[cut:]
+    rows.append(text)
+    return rows
+
+
 class Display:
     def __init__(self, sda, scl, addr=0x3C):
         self.lines = [""] * ROWS
@@ -60,5 +79,4 @@ class Display:
 
     def center(self, row, s):
         """Set one row with s centered."""
-        s = str(s)[:COLS]
-        self.line(row, " " * ((COLS - len(s)) // 2) + s)
+        self.line(row, centered(s))

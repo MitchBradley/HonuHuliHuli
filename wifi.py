@@ -12,6 +12,7 @@ import network
 import time
 import settings
 
+HOSTNAME = "honuhuli"        # mDNS name: http://honuhuli.local/
 AP_SSID = "HonuHuli"         # Fits one 8-character OLED line
 AP_PASSWORD = "honuhuli"     # WPA2; must be at least 8 characters
 AP_IP = "192.168.2.1"        # AP address; clients get DHCP leases on its /24
@@ -70,8 +71,18 @@ def _try(sta, s, timeout_s):
     return None
 
 
+def set_hostname():
+    # Must happen before the interface is activated; after a soft reboot
+    # the interface is still up, so a change may need a hard reset.
+    try:
+        network.hostname(HOSTNAME)
+    except (AttributeError, ValueError, OSError) as e:
+        print("hostname", e)
+
+
 def connect(timeout_s=10):
     """Connect as a station.  Returns the IP address, or None."""
+    set_hostname()
     sta = network.WLAN(network.STA_IF)
     sta.active(True)
     if sta.isconnected():

@@ -43,6 +43,9 @@ a control panel on port 80 with Start, Stop, Index 1/8, and Run for N
 minutes, plus live status (state, time remaining, UV). The last N is saved
 in `settings.json`.
 
+In station mode the board answers to `http://honuhuli.local/` (mDNS; `HOSTNAME`
+in `wifi.py`), and the OLED shows that name and the IP address.
+
 If `wifi_credentials.py` doesn't connect, settings saved from the setup page
 (in `settings.json`) are tried next. If those fail too, the turntable starts its own
 access point, `HonuHuli` (password `honuhuli`; see `wifi.py`), and

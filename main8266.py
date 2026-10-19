@@ -179,10 +179,20 @@ class Button:
         return None
 
 
+def fmt_time(s):
+    """Seconds as m:ss, or h:mm:ss from an hour up."""
+    m, s = divmod(s, 60)
+    if m < 60:
+        return "%d:%02d" % (m, s)
+    h, m = divmod(m, 60)
+    return "%d:%02d:%02d" % (h, m, s)
+
+
 class Turntable:
     def __init__(self, oled=None):
         self.oled = oled
         self.state_label = ""
+        self.shown_secs = None   # remaining seconds last shown
         if STEPS_PER_REV % DIVISIONS:
             raise ValueError("STEPS_PER_REV not divisible by DIVISIONS")
         self.enable_pin = Pin(ENABLE_PIN, Pin.OUT, value=ENABLE_AT_BOOT)
@@ -201,9 +211,13 @@ class Turntable:
     def start(self, seconds=None):
         """Start continuous rotation, optionally stopping after seconds."""
         self.motion.start_continuous()
-        self.show_state("Run")
-        self.run_deadline = (None if seconds is None
-                             else ticks_add(ticks_ms(), int(seconds * 1000)))
+        self.shown_secs = None
+        if seconds is None:
+            self.run_deadline = None
+            self.show_state("Run")
+        else:
+            self.run_deadline = ticks_add(ticks_ms(), int(seconds * 1000))
+            self.show_remaining()
 
     def stop(self):
         """Stop continuous rotation on the next reachable index position."""
@@ -211,6 +225,17 @@ class Turntable:
         if self.motion.continuous():
             self.uv(False)
             self.motion.stop_continuous()
+
+    def show_remaining(self):
+        """Count down a timed run on the state row, stopping at zero."""
+        ms = ticks_diff(self.run_deadline, ticks_ms())
+        if ms <= 0:
+            self.stop()
+            return
+        secs = (ms + 999) // 1000
+        if secs != self.shown_secs:
+            self.shown_secs = secs
+            self.show_state(fmt_time(secs))
 
     def show_state(self, label):
         """Show Index/Run on the OLED's bottom row; "" clears it, which
@@ -251,9 +276,8 @@ class Turntable:
             if not self.consumed:
                 self.add_index()
 
-        if (self.run_deadline is not None
-                and ticks_diff(ticks_ms(), self.run_deadline) >= 0):
-            self.stop()
+        if self.run_deadline is not None:
+            self.show_remaining()
 
         if not motion.active():
             self.next_t = None
