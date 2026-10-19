@@ -66,6 +66,15 @@ mpremote cp main.py pins.py web.py wifi.py display.py ssd1306.py settings.py wif
 mpremote reset
 ```
 
+### Precompiled install
+
+`./build_esp32.sh` puts everything for the ESP32 board in `build/esp32/`
+(gitignored), with each module precompiled to `.mpy` by `mpy-cross` and
+`main.py` (plus `wifi_credentials.py`, if present) as source. Upload the
+folder's contents to the board root, and delete any `.py` copies of those
+modules already there: MicroPython imports `foo.py` in preference to
+`foo.mpy`.
+
 ## REPL commands
 
 Ctrl-C at the console stops the controller (abruptly, if moving) and leaves

@@ -4,3 +4,4 @@ __pycache__/
 *credentials.py
 settings.json
 settings.json.tmp
+build/
