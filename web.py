@@ -7,6 +7,7 @@
 import settings
 import asyncio
 import machine
+import network
 from microdot import Microdot
 import wifi
 
@@ -25,7 +26,7 @@ def _set_minutes(n):
 PAGE = """<!doctype html>
 <html><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>HonuHuliHuli</title>
+<title>%TITLE%</title>
 <style>
 body{font-family:system-ui,sans-serif;max-width:24rem;margin:1rem auto;padding:0 1rem}
 #status{font-size:1.5rem;margin:1rem 0}
@@ -35,7 +36,7 @@ input{font-size:1.2rem;width:5rem}
 .row{display:flex;gap:.5rem;align-items:center}
 .row button{flex:1}
 </style></head><body>
-<h2>HonuHuliHuli</h2>
+<h2>%TITLE%</h2>
 <div id="status">...</div>
 <button onclick="cmd('start')">Start</button>
 <button onclick="cmd('stop')">Stop</button>
@@ -106,13 +107,21 @@ async def _reboot():
     machine.reset()
 
 
+def _title():
+    """Page title, with the mDNS name when connected as a station."""
+    if network.WLAN(network.STA_IF).isconnected():
+        return "HonuHuliHuli (%s.local)" % wifi.HOSTNAME
+    return "HonuHuliHuli"
+
+
 def make_app(turntable):
     app = Microdot()
 
     @app.get("/")
     def index(request):
-        return (PAGE.replace("%MINUTES%", str(_get_minutes())), 200,
-                {"Content-Type": "text/html"})
+        page = (PAGE.replace("%MINUTES%", str(_get_minutes()))
+                .replace("%TITLE%", _esc(_title())))
+        return page, 200, {"Content-Type": "text/html"}
 
     @app.get("/status")
     def status(request):
