@@ -48,7 +48,7 @@ If `wifi_credentials.py` doesn't connect, settings saved from the setup page
 access point, `HonuHuli` (password `honuhuli`; see `wifi.py`), and
 shows its name and address on the OLED. Holding the button at power-up
 skips straight to the access point. Join it
-and browse to http://192.168.4.1/wifi to pick a network and enter the
+and browse to http://192.168.2.1/wifi (`AP_IP` in `wifi.py`) to pick a network and enter the
 password and IP settings; saving reboots and connects. The control panel
 also works over the access point, and the setup page is linked from it.
 

@@ -481,11 +481,20 @@ def web():
 
 
 def show_ap(ip):
-    """Show the access point SSID and IP, replacing the signon message."""
+    """Show the access point SSID and setup page address, replacing the
+    signon message."""
     import wifi
-    # An IP is wider than the display; break it after a dot
-    cut = ip.rfind(".", 0, 8) + 1 if len(ip) > 8 else len(ip)
-    oled.show(wifi.AP_SSID, "", ip[:cut], ip[cut:])
+    # The address is wider than the display; wrap it at 8 characters,
+    # breaking after a dot or before the slash where possible.
+    text = ip + "/wifi"
+    rows = []
+    while len(text) > 8:
+        cut = max([i for i in range(1, 9)
+                   if text[i - 1] == "." or text[i] == "/"] or [8])
+        rows.append(text[:cut])
+        text = text[cut:]
+    rows.append(text)
+    oled.show(wifi.AP_SSID, "", *rows)
 
 
 def main():

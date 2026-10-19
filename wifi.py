@@ -14,7 +14,7 @@ import settings
 
 AP_SSID = "HonuHuli"         # Fits one 8-character OLED line
 AP_PASSWORD = "honuhuli"     # WPA2; must be at least 8 characters
-AP_IP = "192.168.4.1"        # MicroPython's default AP address
+AP_IP = "192.168.2.1"        # AP address; clients get DHCP leases on its /24
 
 KEYS = ("SSID", "Password", "IP", "netmask", "gateway", "DNS")
 
@@ -108,6 +108,8 @@ def start_ap():
     ap.active(True)
     ap.config(essid=AP_SSID, password=AP_PASSWORD,
               authmode=network.AUTH_WPA_WPA2_PSK)
+    # Replace MicroPython's default 192.168.4.1; the DHCP server follows
+    ap.ifconfig((AP_IP, "255.255.255.0", AP_IP, AP_IP))
     print("Access point %s up; setup page at http://%s/wifi"
           % (AP_SSID, AP_IP))
     return ap.ifconfig()[0]
