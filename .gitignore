@@ -2,3 +2,5 @@ __pycache__/
 *.mpy
 .DS_Store
 *credentials.py
+settings.json
+settings.json.tmp

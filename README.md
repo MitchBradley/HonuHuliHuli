@@ -40,10 +40,10 @@ same format as kiln-annealer's: `SSID`, `Password`, and `IP` set to either
 `'DHCP'` or a static address plus `netmask`, `gateway`, `DNS`). It then serves
 a control panel on port 80 with Start, Stop, Index 1/8, and Run for N
 minutes, plus live status (state, time remaining, UV). The last N is saved
-in NVS.
+in `settings.json`.
 
 If `wifi_credentials.py` doesn't connect, settings saved from the setup page
-(in NVS) are tried next. If those fail too, the turntable starts its own
+(in `settings.json`) are tried next. If those fail too, the turntable starts its own
 access point, `HonuHuli` (password `honuhuli`; see `wifi.py`), and
 shows its name and address on the OLED. Holding the button at power-up
 skips straight to the access point. Join it
@@ -58,7 +58,7 @@ loop runs as an asyncio task beside it.
 
 ```
 mpremote cp -r microdot :
-mpremote cp main.py web.py wifi.py display.py ssd1306.py wifi_credentials.py :
+mpremote cp main.py web.py wifi.py display.py ssd1306.py settings.py wifi_credentials.py :
 mpremote reset
 ```
 
