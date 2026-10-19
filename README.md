@@ -44,7 +44,10 @@ minutes, plus live status (state, time remaining, UV). The last N is saved
 in `settings.json`.
 
 In station mode the board answers to `http://honuhuli.local/` (mDNS; `HOSTNAME`
-in `wifi.py`), and the OLED shows that name and the IP address.
+in `wifi.py`), and the OLED shows that name and the IP address. The control
+panel and setup page titles and headings also include it, e.g.
+"HonuHuliHuli (honuhuli.local)", so bookmarks and tabs say which board they
+are; over the access point they omit it.
 
 If `wifi_credentials.py` doesn't connect, settings saved from the setup page
 (in `settings.json`) are tried next. If those fail too, the turntable starts its own
