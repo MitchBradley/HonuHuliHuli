@@ -116,9 +116,10 @@ std::string start_ap() {
     esp_wifi_set_mode(WIFI_MODE_STA);
     esp_wifi_start();
     if (esp_wifi_scan_start(nullptr, true) == ESP_OK) {
+        // On the heap: 20 records are ~1.6 KB, too much for the main task
         uint16_t n = 20;
-        wifi_ap_record_t recs[20];
-        esp_wifi_scan_get_ap_records(&n, recs);
+        std::vector<wifi_ap_record_t> recs(n);
+        esp_wifi_scan_get_ap_records(&n, recs.data());
         for (int i = 0; i < n; i++) {
             std::string s((const char*)recs[i].ssid);
             if (!s.empty() && std::find(seen.begin(), seen.end(), s) == seen.end()) seen.push_back(s);

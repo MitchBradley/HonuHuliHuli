@@ -1,6 +1,10 @@
 CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
 CONFIG_FREERTOS_HZ=1000
 
+# app_main does the WiFi setup with std::string and friends; 3.5 KB default
+# is too tight
+CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+
 # Keep the RMT refill interrupt running while flash is written (NVS saves
 # can happen mid-move); the step encoder callback is in IRAM.
 CONFIG_RMT_TX_ISR_CACHE_SAFE=y

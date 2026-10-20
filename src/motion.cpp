@@ -236,7 +236,9 @@ static void motion_task(void* arg) {
     ESP_ERROR_CHECK(rmt_enable(chan));
     xSemaphoreGive((SemaphoreHandle_t)arg);
 
-    static const uint8_t dummy = 0;
+    // Unused payload, but with the cache-safe ISR the driver requires it
+    // to be in internal RAM (a const would land in flash)
+    static DRAM_ATTR uint8_t dummy = 0;
     rmt_transmit_config_t tc = {};
     while (true) {
         ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(10));
