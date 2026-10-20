@@ -5,3 +5,7 @@ __pycache__/
 settings.json
 settings.json.tmp
 build/
+.pio/
+sdkconfig.esp32
+sdkconfig.esp32.old
+managed_components/
