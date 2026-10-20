@@ -9,14 +9,14 @@ Runs on any ESP32 variant with an RMT peripheral.
 
 | Button action | Result |
 |---|---|
-| Short press | Index 1/8 turn. Presses accumulate, including while moving. |
-| Hold 1 s | Continuous rotation starts as soon as 1 s is reached. |
-| Any press while rotating | Decelerate and stop on the next reachable 1/8 position. |
+| Short press | Index 1/8 turn from wherever the table is. Presses accumulate, including while moving, and play as back-to-back 1/8 moves. |
+| Hold 1 s | Continuous rotation starts as soon as 1 s is reached (after the current 1/8 move, if one is playing; queued moves are dropped). |
+| Any press while rotating | Decelerate to a stop, starting within `CRUISE_MS` (0.1 s) at speed, or `PIECE_MS` (0.5 s) while still accelerating. |
 
 The UV relay output (`UV_PIN`) turns on once continuous rotation reaches
 speed and off immediately on the stop press, so it is off while decelerating.
 
-The power-up position is index position 0; all stops land on multiples of 1/8 turn from it.
+Indexing is relative: each 1/8 move starts from wherever the table stopped.
 
 ## Configuration
 
@@ -86,9 +86,10 @@ these available:
 | Command | Result |
 |---|---|
 | `index(n)` | Index n eighths of a turn (default 1) and wait for it to finish. |
-| `run(seconds)` | Rotate continuously, then stop on the next 1/8 position. |
+| `run(seconds)` | Rotate continuously, then decelerate to a stop. |
 | `step(n, interval_ms=10)` | Send n microsteps, then print the electrical position and ideal phase currents. |
 | `enable(bool)` | Energize (True) or release (False) the motor. |
+| `stats()` | Report how late piece handoffs were since the last call (motion stutters show up here). |
 | `loop()` | Run the pushbutton controller only. |
 | `web()` | Run the pushbutton controller and web server. |
 
@@ -112,8 +113,39 @@ mpremote reset
 
 ## How it works
 
-Step pulses come from the RMT peripheral. Python computes ~40 ms chunks of
-pulse timings for a trapezoidal profile (exact constant acceleration via
-v² += 2a per step) and keeps one chunk ready while the current one plays,
-polling the button in between. Python throughput limits the step rate to
-roughly 10-20 k steps/s; normal turntable speeds are far below that.
+Step pulses come from the RMT peripheral. At startup `main.py` precomputes
+every pulse train it will play (constant acceleration via v² += 2a per step):
+the ramp from rest to continuous speed cut into pieces of at most `PIECE_MS`,
+the reverse of each ramp piece for deceleration, one `CRUISE_MS` cruise piece, and one
+complete 1/8 index move. Running then needs no float math and creates no
+garbage; whenever the RMT finishes a piece, `poll()` hands it the next
+ready-made list. Because the ramp pieces are reversible, a stop during
+acceleration turns around at the next piece boundary, and a restart during
+deceleration climbs back from the same point.
+
+MicroPython's `write_pulses()` waits for the previous transmission to finish,
+so the motion is exposed to Python delays (web requests, garbage collection)
+only at piece handoffs. Handoffs are driven by a one-shot `machine.Timer`
+armed to fire `SPIN_US` before each piece ends; its callback waits out the rest
+and writes the next piece. Timer callbacks are soft interrupts that run between
+bytecodes of whatever Python code is executing, so a web request being handled
+in the asyncio loop can't delay a handoff; only long-running C code can. The
+remaining gap is `write_pulses()` converting the list (about 0.5 us per step),
+which is why the cruise piece is short. After every move the console prints
+handoff timing (also available from `stats()`).
+
+### Known limitation
+
+With a browser connected, handoffs can still be late by up to ~85 ms: even a
+soft interrupt is held off while MicroPython is inside long-running C code
+(socket/lwIP calls on the request path), and a gap in the pulses at speed
+brakes the motor hard. Without a browser no late handoffs were seen. Two ways
+around it were ruled out on the classic ESP32: cutting off a looping RMT
+transmission (`rmt.loop(False)`) crashed even with ESP-IDF 5.5.2, and
+MicroPython's `write_pulses()` cannot queue a transmission behind the playing
+one. The robust fix is to move motion timing out of MicroPython, which is why
+a C++ version is being written. The pieces never get cut off mid-transmission: on the classic ESP32,
+`rmt_disable()` during a long transmission can panic (ESP-IDF issue 17692).
+
+The tables take about 33 KB of RAM at the default settings; boot prints the
+free memory left after building them.
