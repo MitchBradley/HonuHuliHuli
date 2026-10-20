@@ -152,6 +152,13 @@ static void ui_task(void*) {
         rows.resize(5);
 
         motion::Status s = motion::status();
+        if (s.mode == motion::Mode::Run && s.remaining_s >= 0) {
+            // Timed run: big minutes left (rounded up) and the exact m:ss
+            label = fmt_time(s.remaining_s);
+            display::show_big((s.remaining_s + 59) / 60, label);
+            vTaskDelay(pdMS_TO_TICKS(100));
+            continue;
+        }
         switch (s.mode) {
             case motion::Mode::Idle: label = ""; break;
             case motion::Mode::Index: label = "Index"; break;

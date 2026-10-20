@@ -17,6 +17,10 @@ bool init();
 // if something changed.
 void show(const std::vector<std::string>& rows);
 
+// Big digits (21x32, up to 3) centered across the top 4 text rows, and one
+// line of normal text centered on the bottom row.
+void show_big(int number, const std::string& bottom);
+
 // s truncated to the width and padded to center it
 std::string centered(const std::string& s);
 

@@ -29,7 +29,9 @@ immediately when a stop is requested.
 
 The Wemos/LOLIN 64x48 OLED shield shows the network name and address (the
 mDNS name and IP in station mode; the AP name and setup URL in access point
-mode) and, on the bottom row, `Index`, `Run`, or the time left in a timed run.
+mode) and, on the bottom row, `Index` or `Run`. During a timed run the
+whole screen shows the minutes left in large digits (rounded up), with the
+exact m:ss below; the large font is from cforth's `numfont`.
 
 ## Network
 

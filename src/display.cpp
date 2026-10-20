@@ -6,6 +6,7 @@
 #include "driver/i2c_master.h"
 #include "esp_log.h"
 #include "font8x8.h"
+#include "numfont.h"
 
 namespace display {
 
@@ -19,7 +20,8 @@ constexpr int COL_OFFSET = (128 - WIDTH) / 2;
 
 static i2c_master_dev_handle_t dev = nullptr;
 static uint8_t buf[1 + WIDTH * PAGES];  // control byte + framebuffer
-static std::vector<std::string> shown;
+static uint8_t shown[WIDTH * PAGES];    // what the panel has now
+static bool shown_valid = false;
 
 static void cmd(uint8_t c) {
     uint8_t b[2] = {0x80, c};
@@ -66,22 +68,27 @@ bool init() {
         0xAF,        // display on
     };
     for (uint8_t c : seq) cmd(c);
-    shown.assign(ROWS, "?");  // force the first redraw
     show({});
     return true;
 }
 
-static void redraw(const std::vector<std::string>& rows) {
-    uint8_t* fb = buf + 1;
-    memset(fb, 0, WIDTH * PAGES);
-    for (int r = 0; r < ROWS && r < (int)rows.size(); r++) {
-        const std::string& s = rows[r];
-        for (int i = 0; i < COLS && i < (int)s.size(); i++) {
-            unsigned ch = (unsigned char)s[i];
-            if (ch < 32 || ch > 127) ch = '?';
-            memcpy(fb + r * WIDTH + i * 8, &font_petme128_8x8[(ch - 32) * 8], 8);
-        }
+static uint8_t* fb() {
+    return buf + 1;
+}
+
+static void text_row(int r, const std::string& s) {
+    for (int i = 0; i < COLS && i < (int)s.size(); i++) {
+        unsigned ch = (unsigned char)s[i];
+        if (ch < 32 || ch > 127) ch = '?';
+        memcpy(fb() + r * WIDTH + i * 8, &font_petme128_8x8[(ch - 32) * 8], 8);
     }
+}
+
+// Send the framebuffer if it differs from what the panel shows
+static void flush() {
+    if (shown_valid && memcmp(shown, fb(), sizeof(shown)) == 0) return;
+    memcpy(shown, fb(), sizeof(shown));
+    shown_valid = true;
     cmd(0x21); cmd(COL_OFFSET); cmd(COL_OFFSET + WIDTH - 1);
     cmd(0x22); cmd(0); cmd(PAGES - 1);
     buf[0] = 0x40;  // data
@@ -90,11 +97,26 @@ static void redraw(const std::vector<std::string>& rows) {
 
 void show(const std::vector<std::string>& rows) {
     if (!dev) return;
-    std::vector<std::string> r(ROWS);
-    for (int i = 0; i < ROWS && i < (int)rows.size(); i++) r[i] = rows[i].substr(0, COLS);
-    if (r == shown) return;
-    shown = r;
-    redraw(r);
+    memset(fb(), 0, WIDTH * PAGES);
+    for (int r = 0; r < ROWS && r < (int)rows.size(); r++) text_row(r, rows[r]);
+    flush();
+}
+
+void show_big(int number, const std::string& bottom) {
+    if (!dev) return;
+    memset(fb(), 0, WIDTH * PAGES);
+    char digits[8];
+    int n = snprintf(digits, sizeof(digits), "%d", number < 0 ? 0 : number);
+    if (n > WIDTH / NUMFONT_WIDTH) n = WIDTH / NUMFONT_WIDTH;
+    int x0 = (WIDTH - n * NUMFONT_WIDTH) / 2;
+    for (int i = 0; i < n; i++) {
+        const uint8_t(*g)[NUMFONT_WIDTH] = numfont[digits[i] - '0'];
+        for (int p = 0; p < NUMFONT_PAGES; p++) {
+            memcpy(fb() + p * WIDTH + x0 + i * NUMFONT_WIDTH, g[p], NUMFONT_WIDTH);
+        }
+    }
+    text_row(ROWS - 1, centered(bottom));
+    flush();
 }
 
 std::string centered(const std::string& s) {
