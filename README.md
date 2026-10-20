@@ -14,9 +14,13 @@ while serving web requests; see its README for the details.
 | Action | Result |
 |---|---|
 | Short press | Index 1/8 turn from wherever the table is. Presses accumulate into one smooth move, including while moving. |
-| Hold 1 s | Continuous rotation starts as soon as 1 s is reached (after an index move in progress finishes). |
+| Hold 1 s | A 5 minute run starts as soon as 1 s is reached (after an index move in progress finishes). Each further second held sets it to 10, 20, 30, 40, 50, then 60 minutes from that moment; the OLED shows the time. |
 | Any press while rotating | Decelerate to a stop at once. |
 | Held at power-up | Skip WiFi and start the setup access point. |
+
+The web panel's Start runs until stopped; the button only starts timed runs.
+A timed run's clock starts when the run begins, not while an index move it
+is waiting for finishes.
 
 The UV relay output turns on once continuous rotation reaches speed and off
 immediately when a stop is requested.

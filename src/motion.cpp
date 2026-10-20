@@ -69,6 +69,7 @@ static portMUX_TYPE mux = portMUX_INITIALIZER_UNLOCKED;
 
 static volatile bool tx_active = false;  // an RMT transmission is in flight
 static int64_t  run_deadline_us = 0;     // 0 = untimed
+static uint32_t run_seconds_queued = 0;  // timed run waiting behind an index move
 static bool     enabled = cfg::ENABLE_AT_BOOT;
 
 static rmt_channel_handle_t chan = nullptr;
@@ -243,6 +244,15 @@ static void motion_task(void* arg) {
     while (true) {
         ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(10));
 
+        // A timed run queued behind an index move starts its clock when
+        // the run actually begins
+        portENTER_CRITICAL(&mux);
+        if (run_seconds_queued && st.mode == Mode::Run) {
+            run_deadline_us = esp_timer_get_time() + (int64_t)run_seconds_queued * 1000000;
+            run_seconds_queued = 0;
+        }
+        portEXIT_CRITICAL(&mux);
+
         if (run_deadline_us && esp_timer_get_time() >= run_deadline_us) {
             stop();
         }
@@ -296,7 +306,13 @@ void start(uint32_t seconds) {
         case Mode::Run:
             break;
     }
-    run_deadline_us = seconds ? esp_timer_get_time() + (int64_t)seconds * 1000000 : 0;
+    if (st.mode == Mode::Index) {
+        run_seconds_queued = seconds;  // clock starts with the run
+        run_deadline_us = 0;
+    } else {
+        run_seconds_queued = 0;
+        run_deadline_us = seconds ? esp_timer_get_time() + (int64_t)seconds * 1000000 : 0;
+    }
     portEXIT_CRITICAL(&mux);
     kick();
 }
@@ -304,6 +320,7 @@ void start(uint32_t seconds) {
 void stop() {
     portENTER_CRITICAL(&mux);
     run_deadline_us = 0;
+    run_seconds_queued = 0;
     st.run_after = false;
     if (st.mode == Mode::Run) {
         st.mode = Mode::Stopping;

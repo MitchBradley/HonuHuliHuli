@@ -5,8 +5,9 @@
 //
 //   Short press       index 1/8 turn from wherever the table is.  Presses
 //                     accumulate into one smooth move, even while moving.
-//   Hold > 1 second   start continuous rotation (after an index move in
-//                     progress finishes).
+//   Hold 1 second     start a 5 minute run (after an index move in progress
+//                     finishes).  Each further second held sets the run to
+//                     10, 20, 30, 40, 50, then 60 minutes from that moment.
 //   Any press while   decelerate to a stop at once.
 //   rotating
 //   Held at power-up  skip WiFi and start the setup access point.
@@ -54,6 +55,7 @@ static void button_task(void*) {
     // release is not a short press.
     bool long_sent = stable;
     bool consumed = stable;
+    int hold_step = -1;  // index into HOLD_RUN_MINUTES while held, -1 none
     while (true) {
         vTaskDelay(pdMS_TO_TICKS(5));
         int64_t t = now_ms();
@@ -79,8 +81,20 @@ static void button_task(void*) {
         } else if (stable && !long_sent && t - pressed_at >= cfg::LONG_PRESS_MS) {
             long_sent = true;
             if (!consumed) {
-                motion::start();
+                hold_step = 0;
+                motion::start(cfg::HOLD_RUN_MINUTES[0] * 60);
                 consumed = true;
+            } else {
+                hold_step = -1;  // press was a stop; don't start a run
+            }
+        } else if (stable && long_sent && hold_step >= 0) {
+            // Each further second held lengthens the run, from that moment
+            constexpr int n = sizeof(cfg::HOLD_RUN_MINUTES) / sizeof(cfg::HOLD_RUN_MINUTES[0]);
+            int want = (int)((t - pressed_at) / cfg::LONG_PRESS_MS) - 1;
+            if (want > n - 1) want = n - 1;
+            if (want > hold_step) {
+                hold_step = want;
+                motion::start(cfg::HOLD_RUN_MINUTES[hold_step] * 60);
             }
         }
     }

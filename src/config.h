@@ -33,7 +33,9 @@ constexpr int STEPS_PER_INDEX = STEPS_PER_REV / DIVISIONS;
 static_assert(STEPS_PER_REV % DIVISIONS == 0, "steps/rev not divisible");
 
 // Button
-constexpr int LONG_PRESS_MS = 1000;  // hold this long for continuous rotation
+constexpr int LONG_PRESS_MS = 1000;  // hold this long to start a timed run,
+                                     // and this much longer for each step
+constexpr int HOLD_RUN_MINUTES[] = {5, 10, 20, 30, 40, 50, 60};
 constexpr int DEBOUNCE_MS   = 30;
 
 // Network
